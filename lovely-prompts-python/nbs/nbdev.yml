@@ -1,0 +1,9 @@
+project:
+  output-dir: _docs
+
+website:
+  title: "lovely-prompts"
+  site-url: "https://xl0.github.io/lovely-prompts"
+  description: "Lovely Prompts"
+  repo-branch: master
+  repo-url: "https://github.com/xl0/lovely-prompts"
