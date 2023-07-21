@@ -42,11 +42,10 @@ class SQLRowBase(BaseModel):
     updated: datetime = Field(None, example="2021-01-01T00:00:00.000Z")
 
 
-
 class ChatResponse(SQLRowBase, ChatResponseBase):
     pass
     # prompt: PromptBase = Field(..., alias="prompt")
 
 
-class Prompt(SQLRowBase, ChatPromptBase):
+class ChatPrompt(SQLRowBase, ChatPromptBase):
     responses: List[ChatResponse] = Field([], alias="responses")

@@ -12,8 +12,8 @@ class DBPrompt(Base):
     messages = Column(JSON)
     comment = Column(String)
     project = Column(String)
-    created  = Column(DateTime, default=func.now())
-    updated  = Column(DateTime, default=func.now(), onupdate=func.now())
+    created  = Column(DateTime(timezone=True), default=func.now())
+    updated  = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     # Relationship to DBResponse
     responses = relationship("DBResponse", back_populates="prompt", cascade="all, delete-orphan")
@@ -39,6 +39,6 @@ class DBResponse(Base):
     provider = Column(String)
     meta = Column(JSON)
 
-    created  = Column(DateTime, default=func.now())
-    updated  = Column(DateTime, default=func.now(), onupdate=func.now())
+    created  = Column(DateTime(timezone=True), default=func.now())
+    updated  = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 

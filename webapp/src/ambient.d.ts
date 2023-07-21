@@ -16,7 +16,7 @@ interface ChatMessage extends Chunk {
 };
 
 
-interface ChatResponse extends Chunk, SQLRow {
+interface Data_ChatResponse extends Chunk, SQLRow {
     prompt_id?: number;
     response: ChatMessage;
     tok_in?: number;
@@ -28,7 +28,7 @@ interface ChatResponse extends Chunk, SQLRow {
     meta?: Record<string, unknown>;
 }
 
-interface ChatPrompt extends Chunk, SQLRow {
+interface Data_ChatPrompt extends Chunk, SQLRow {
     messages?: ChatMessage[];
-    responses?: ChatResponse[];
+    responses?: Data_ChatResponse[];
 };

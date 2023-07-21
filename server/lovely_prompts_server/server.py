@@ -6,12 +6,27 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import create_engine
 
 from .models import DBPrompt, DBResponse, Base
-from .schemas import Prompt, ChatResponse, ChatPromptBase, ChatResponseBase
+from .schemas import ChatPrompt, ChatResponse, ChatPromptBase, ChatResponseBase
 
 engine = create_engine("sqlite:///./sql_app.db")
 SessionLocal = sessionmaker(autoflush=True, bind=engine)
 
 app = FastAPI()
+
+
+from fastapi.middleware.cors import CORSMiddleware
+
+origins = [
+    "*",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.on_event("startup")
@@ -72,13 +87,13 @@ def db_delete(db: Session, table: Base, id: int):
 from collections import OrderedDict
 
 
-@app.get("/prompts/", response_model=List[Prompt])
+@app.get("/prompts/", response_model=List[ChatPrompt])
 def read_prompts(skip: int = 0, limit: int = 0, db: Session = Depends(get_db)):
     prompts = db_gets(db, DBPrompt, skip=skip, limit=limit)
     return prompts
 
 
-@app.get("/prompts/{prompt_id}", response_model=Prompt)
+@app.get("/prompts/{prompt_id}", response_model=ChatPrompt)
 def read_prompt(prompt_id: int, db: Session = Depends(get_db)):
     db_prompt = db_get(db, DBPrompt, prompt_id)
     if db_prompt is None:
@@ -86,12 +101,12 @@ def read_prompt(prompt_id: int, db: Session = Depends(get_db)):
     return db_prompt
 
 
-@app.post("/prompts/", response_model=Prompt)
+@app.post("/prompts/", response_model=ChatPrompt)
 def create_prompt(prompt: ChatPromptBase, db: Session = Depends(get_db)):
     return db_create(db, DBPrompt, prompt.dict())
 
 
-@app.put("/prompts/{prompt_id}", response_model=Prompt)
+@app.put("/prompts/{prompt_id}", response_model=ChatPrompt)
 def update_prompt(prompt_id: int, prompt: ChatPromptBase, db: Session = Depends(get_db)):
     db_update(db, DBPrompt, prompt_id, prompt.dict())
     db_prompt = db_get(db, DBPrompt, prompt_id)
@@ -141,20 +156,23 @@ def update_response(response_id: int, response: ChatResponseBase, db: Session = 
 def delete_response(response_id: int, db: Session = Depends(get_db)):
     db_delete(db, DBResponse, response_id)
 
+
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-
-@app.get('/{path_name}')
-async def index(path_name:str):
-    print(path_name)
-    return FileResponse('../webapp/build/index.html')
 
 # @app.api_route("/{path_name:path}", methods=["GET"])
 # async def catch_all(request: Request, path_name: str):
 #     return {"request_method": request.method, "path_name": path_name}
 
 app.mount("/", StaticFiles(directory="../webapp/build/", html=True), name="static")
+
+
+@app.get("/{path_name}")
+async def index(path_name: str):
+    print(path_name)
+    return FileResponse("../webapp/build/index.html")
+
 
 import uvicorn
 
