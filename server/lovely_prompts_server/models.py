@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, String, JSON, Float
+from sqlalchemy import Column, ForeignKey, Integer, String, JSON, Float, DateTime, func
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -9,9 +9,11 @@ class DBPrompt(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String)
-    prompt = Column(JSON)
+    messages = Column(JSON)
     comment = Column(String)
     project = Column(String)
+    created  = Column(DateTime, default=func.now())
+    updated  = Column(DateTime, default=func.now(), onupdate=func.now())
 
     # Relationship to DBResponse
     responses = relationship("DBResponse", back_populates="prompt", cascade="all, delete-orphan")
@@ -36,3 +38,7 @@ class DBResponse(Base):
     temperature = Column(Float)
     provider = Column(String)
     meta = Column(JSON)
+
+    created  = Column(DateTime, default=func.now())
+    updated  = Column(DateTime, default=func.now(), onupdate=func.now())
+

@@ -1,22 +1,32 @@
 from typing import List, Dict, Union
 from pydantic import BaseModel, Field
+from datetime import datetime
 
 
-class PromptBase(BaseModel):
+class _Common(BaseModel):
     title: str = Field(None, example="The encounter")
-    prompt: Union[List[Dict], str] = Field(None, example={"messages": [{"role": "user", "text": "Hello there"}]})
     comment: str = Field(None, example="This is a comment")
+
+    class Config:
+        orm_mode = True
+
+
+class ChatMessage(BaseModel):
+    role: str = Field(None, example="user")
+    content: str = Field(None, example="Hello there")
+
+
+class ChatPromptBase(_Common):
+    messages: List[ChatMessage] = Field(None, example=[{"role": "user", "content": "Hello there"}])
     project: str = Field(None, example="my-awesome-project1!1")
 
     class Config:
         orm_mode = True
 
 
-class ResponseBase(BaseModel):
+class ChatResponseBase(_Common):
     prompt_id: int = Field(None, example=1)
-    title: str = Field(None, example="The response")
-    response: Union[Dict, str] = Field(None, example="General Kenobi!!")
-    comment: str = Field(None, example="This is a response comment")
+    response: ChatMessage = Field(None, example={"role": "assistant", "content": "General Kenobi!!"})
     tok_in: int = Field(None, example=10)
     tok_out: int = Field(None, example=20)
     tok_max: int = Field(None, example=8000)
@@ -25,15 +35,18 @@ class ResponseBase(BaseModel):
     temperature: float = Field(None, example=0.7)
     provider: str = Field(None, example="openai")
 
-    class Config:
-        orm_mode = True
 
-
-class Response(ResponseBase):
+class SQLRowBase(BaseModel):
     id: int
+    created: datetime = Field(default=None, example="2021-01-01T00:00:00.000Z")
+    updated: datetime = Field(None, example="2021-01-01T00:00:00.000Z")
+
+
+
+class ChatResponse(SQLRowBase, ChatResponseBase):
+    pass
     # prompt: PromptBase = Field(..., alias="prompt")
 
 
-class Prompt(PromptBase):
-    id: int
-    responses: List[ResponseBase] = Field([], alias="responses")
+class Prompt(SQLRowBase, ChatPromptBase):
+    responses: List[ChatResponse] = Field([], alias="responses")

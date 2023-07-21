@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import create_engine
 
 from .models import DBPrompt, DBResponse, Base
-from .schemas import Prompt, Response, PromptBase, ResponseBase
+from .schemas import Prompt, ChatResponse, ChatPromptBase, ChatResponseBase
 
 engine = create_engine("sqlite:///./sql_app.db")
 SessionLocal = sessionmaker(autoflush=True, bind=engine)
@@ -87,12 +87,12 @@ def read_prompt(prompt_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/prompts/", response_model=Prompt)
-def create_prompt(prompt: PromptBase, db: Session = Depends(get_db)):
+def create_prompt(prompt: ChatPromptBase, db: Session = Depends(get_db)):
     return db_create(db, DBPrompt, prompt.dict())
 
 
 @app.put("/prompts/{prompt_id}", response_model=Prompt)
-def update_prompt(prompt_id: int, prompt: PromptBase, db: Session = Depends(get_db)):
+def update_prompt(prompt_id: int, prompt: ChatPromptBase, db: Session = Depends(get_db)):
     db_update(db, DBPrompt, prompt_id, prompt.dict())
     db_prompt = db_get(db, DBPrompt, prompt_id)
     return db_prompt
@@ -103,13 +103,13 @@ def delete_prompt(prompt_id: int, db: Session = Depends(get_db)):
     db_delete(db, DBPrompt, prompt_id)
 
 
-@app.get("/responses/", response_model=List[Response])
+@app.get("/responses/", response_model=List[ChatResponse])
 def read_responses(skip: int = 0, limit: int = 0, db: Session = Depends(get_db)):
     responses = db_gets(db, DBResponse, skip=skip, limit=limit)
     return responses
 
 
-@app.get("/responses/{response_id}", response_model=Response)
+@app.get("/responses/{response_id}", response_model=ChatResponse)
 def read_response(response_id: int, db: Session = Depends(get_db)):
     db_response = db_get(db, DBResponse, response_id)
     if db_response is None:
@@ -117,7 +117,7 @@ def read_response(response_id: int, db: Session = Depends(get_db)):
     return db_response
 
 
-@app.get("/responses/{response_id}", response_model=Response)
+@app.get("/responses/{response_id}", response_model=ChatResponse)
 def read_response(response_id: int, db: Session = Depends(get_db)):
     db_response = db_get(db, DBResponse, response_id)
     if db_response is None:
@@ -125,13 +125,13 @@ def read_response(response_id: int, db: Session = Depends(get_db)):
     return db_response
 
 
-@app.post("/responses/", response_model=Response)
-def create_response(response: ResponseBase, db: Session = Depends(get_db)):
+@app.post("/responses/", response_model=ChatResponse)
+def create_response(response: ChatResponseBase, db: Session = Depends(get_db)):
     return db_create(db, DBResponse, response.dict())
 
 
-@app.put("/responses/{response_id}", response_model=Response)
-def update_response(response_id: int, response: ResponseBase, db: Session = Depends(get_db)):
+@app.put("/responses/{response_id}", response_model=ChatResponse)
+def update_response(response_id: int, response: ChatResponseBase, db: Session = Depends(get_db)):
     db_update(db, DBResponse, response_id, response.dict())
     db_response = db_get(db, DBResponse, response_id)
     return db_response
@@ -141,6 +141,20 @@ def update_response(response_id: int, response: ResponseBase, db: Session = Depe
 def delete_response(response_id: int, db: Session = Depends(get_db)):
     db_delete(db, DBResponse, response_id)
 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+
+@app.get('/{path_name}')
+async def index(path_name:str):
+    print(path_name)
+    return FileResponse('../webapp/build/index.html')
+
+# @app.api_route("/{path_name:path}", methods=["GET"])
+# async def catch_all(request: Request, path_name: str):
+#     return {"request_method": request.method, "path_name": path_name}
+
+app.mount("/", StaticFiles(directory="../webapp/build/", html=True), name="static")
 
 import uvicorn
 
