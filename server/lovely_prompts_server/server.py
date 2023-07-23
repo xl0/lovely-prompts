@@ -1,13 +1,13 @@
 from typing import List, Dict
 from pydantic import BaseModel
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException,WebSocket
 
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import create_engine
 
 from .models import DBPrompt, DBResponse, Base
-from .schemas import ChatPrompt, ChatResponse, ChatPromptBase, ChatResponseBase
+from .schemas import ChatPrompt, ChatResponse, ChatPromptBase, ChatResponseBase, ChatMessage
 
 # engine = create_engine("sqlite:///./sql_app.db")
 # SessionLocal = sessionmaker(autoflush=True, bind=engine)
@@ -35,7 +35,9 @@ app.add_middleware(
 #     """Create the database if it does not exist."""
 #     Base.metadata.create_all(bind=engine)
 
-app.sessionmakers = {}
+from contextvars import ContextVar
+
+sessionmakers = ContextVar("sessionmakers", default={})
 
 
 import appdirs
@@ -55,7 +57,8 @@ def check_project_exists(project="default"):
 
 
 def get_session(project="default"):
-    if project not in app.sessionmakers:
+    thread_local_sm = sessionmakers.get()
+    if project not in thread_local_sm:
         from pathlib import Path
 
         app_data_dir = Path(appdirs.user_data_dir("lovely_prompts"))
@@ -70,9 +73,9 @@ def get_session(project="default"):
         else:
             print("Database already exists")
 
-        app.sessionmakers[project] = sessionmaker(autoflush=True, bind=engine)
+        thread_local_sm[project] = sessionmaker(autoflush=True, bind=engine)
 
-    db = app.sessionmakers[project]()
+    db = thread_local_sm[project]()
     try:
         yield db
     finally:
@@ -230,13 +233,35 @@ def update_response(response_id: int, response: ChatResponseBase, project: str =
 
     return db_response
 
-
 @app.delete("/responses/{response_id}", dependencies=[Depends(check_project_exists)], tags=apiserver_tags)
 def delete_response(response_id: int, project: str = "default", db: Session = Depends(get_session)):
     db_response = db_get(db, DBResponse, response_id)
     prompt_id = db_response.prompt_id
     db_delete(db, DBResponse, response_id)
     update_event_queues({"event": "delete_response", "data": json.dumps({"id": response_id, "prompt_id": prompt_id})}, project=project)
+
+@app.websocket("/responses/{id}/stream_in")
+async def stream_in(websocket: WebSocket, id:str, project: str = "default", db: Session = Depends(get_session)):
+    await websocket.accept()
+    try:
+        db_response = db_get(db, DBResponse, id)
+        if db_response is None:
+            raise HTTPException(status_code=404, detail="Response not found")
+
+        db_response = ChatResponse.from_orm(db_response)
+
+        content = db_response.response.content
+        async for message in websocket.iter_text():
+            print(id, message)
+            content += message
+
+            update_event_queues({"event": "stream_in", "data": json.dumps({"id": id, "prompt_id": db_response.prompt_id, "message": message})}, project=project)
+        db_update(db, DBResponse, id, ChatResponseBase(response=ChatMessage(content=content)))
+
+    finally:
+        print("Closing websocket")
+        await websocket.close()
+        db.close()
 
 
 from sse_starlette.sse import EventSourceResponse

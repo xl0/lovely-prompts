@@ -87,6 +87,18 @@
         prompt_list = prompt_list; // force update
       }
     });
+
+    eventSource.addEventListener("stream_in", (event) => {
+      const data = JSON.parse(event.data);
+      const prompt = prompt_list.find((p) => p.id == data.prompt_id);
+      if (prompt) {
+        const response = prompt.responses.find((r) => r.id == data.id);
+        if (response) {
+          response.response.content += data.message;
+          prompt_list = prompt_list; // force update
+        }
+      }
+    });
   });
 
   // $:
