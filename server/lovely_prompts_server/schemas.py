@@ -1,4 +1,4 @@
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -17,8 +17,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatPromptBase(_Common):
-    messages: List[ChatMessage] = Field(None, example=[{"role": "user", "content": "Hello there"}])
-    project: str = Field(None, example="my-awesome-project1!1")
+    messages: Optional[List[ChatMessage]] = Field(None, example=[{"role": "user", "content": "Hello there"}])
 
     class Config:
         orm_mode = True

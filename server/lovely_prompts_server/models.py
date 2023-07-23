@@ -11,7 +11,6 @@ class DBPrompt(Base):
     title = Column(String)
     messages = Column(JSON)
     comment = Column(String)
-    project = Column(String)
     created  = Column(DateTime(timezone=True), default=func.now())
     updated  = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 

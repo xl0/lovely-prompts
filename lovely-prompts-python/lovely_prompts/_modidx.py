@@ -5,4 +5,5 @@ d = { 'settings': { 'branch': 'master',
                 'doc_host': 'https://xl0.github.io',
                 'git_url': 'https://github.com/xl0/lovely-prompts',
                 'lib_path': 'lovely_prompts'},
-  'syms': {}}
+  'syms': { 'lovely_prompts.utils': { 'lovely_prompts.utils.max_tokens_for_model': ( 'utils.html#max_tokens_for_model',
+                                                                                     'lovely_prompts/utils.py')}}}

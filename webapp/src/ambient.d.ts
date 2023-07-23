@@ -30,5 +30,5 @@ interface Data_ChatResponse extends Chunk, SQLRow {
 
 interface Data_ChatPrompt extends Chunk, SQLRow {
     messages?: ChatMessage[];
-    responses?: Data_ChatResponse[];
+    responses: Data_ChatResponse[];
 };
