@@ -16,9 +16,9 @@ interface ChatMessage extends Chunk {
 };
 
 
-interface Data_ChatResponse extends Chunk, SQLRow {
+interface Data_LLMResponse extends ChatMessage, SQLRow {
     prompt_id?: number;
-    response: ChatMessage;
+    stop_reason?: string;
     tok_in?: number;
     tok_out?: number;
     tok_max?: number;
@@ -28,7 +28,21 @@ interface Data_ChatResponse extends Chunk, SQLRow {
     meta?: Record<string, unknown>;
 }
 
-interface Data_ChatPrompt extends Chunk, SQLRow {
-    messages?: ChatMessage[];
-    responses: Data_ChatResponse[];
+interface Data_LLMPrompt extends Chunk, SQLRow {
+    chat_messages?: ChatMessage[];
+    completion_prompt?: string;
+    responses?: Data_LLMResponse[];
 };
+
+
+interface WSMessage {
+    id: number;
+    prompt_id: number;
+    action: "replace" | "append" | "delete";
+    key: string;
+    value: string;
+}
+
+
+
+

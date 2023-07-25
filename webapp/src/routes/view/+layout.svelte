@@ -2,12 +2,13 @@
   import { onMount } from "svelte";
   import { fade } from "svelte/transition";
   import { page } from "$app/stores";
+  import { goto } from "$app/navigation";
 
   import Prompt from "$lib/components/ChatPrompt.svelte";
   import Response from "$lib/components/ChatResponse.svelte";
   import PromptSummary from "$lib/components/ChatPromptSummary.svelte";
 
-  let prompt_list: Data_ChatPrompt[] = [];
+  let prompt_list: Data_LLMPrompt[] = [];
   let projects: Array<string> = [];
   let project: string;
 
@@ -22,7 +23,7 @@
     fetch("http://localhost:8000/prompts/?" + new URLSearchParams({ project: "default" }))
       .then((res) => res.json())
       .then((j) => {
-        prompt_list = j.sort((a: Data_ChatPrompt, b: Data_ChatPrompt) => {
+        prompt_list = j.sort((a: Data_LLMPrompt, b: Data_LLMPrompt) => {
           return b.id - a.id;
         });
       });
@@ -37,6 +38,7 @@
     eventSource.addEventListener("create_prompt", (event) => {
       const data = JSON.parse(event.data);
       prompt_list = [data, ...prompt_list];
+      goto("/view/" + data.id);
     });
 
     eventSource.addEventListener("update_prompt", (event) => {
@@ -60,7 +62,7 @@
       const data = JSON.parse(event.data);
       const prompt = prompt_list.find((p) => p.id == data.prompt_id);
       if (prompt) {
-        prompt.responses = [data, ...prompt.responses];
+        prompt.responses = [data, ...(prompt.responses ?? [])];
         prompt_list = prompt_list; // force update
       }
     });
@@ -69,6 +71,7 @@
       const data = JSON.parse(event.data);
       const prompt = prompt_list.find((p) => p.id == data.prompt_id);
       if (prompt) {
+        prompt.responses = prompt.responses ?? [];
         const index = prompt.responses.findIndex((r) => r.id == data.id);
         if (index !== -1) {
           prompt.responses[index] = data;
@@ -83,18 +86,27 @@
       const data = JSON.parse(event.data);
       const prompt = prompt_list.find((p) => p.id == data.prompt_id);
       if (prompt) {
+        prompt.responses = prompt.responses ?? [];
         prompt.responses = prompt.responses.filter((r) => r.id != data.id);
         prompt_list = prompt_list; // force update
       }
     });
 
-    eventSource.addEventListener("stream_in", (event) => {
-      const data = JSON.parse(event.data);
+    eventSource.addEventListener("response_update_stream", (event) => {
+      const data = JSON.parse(event.data) as WSMessage;
       const prompt = prompt_list.find((p) => p.id == data.prompt_id);
       if (prompt) {
-        const response = prompt.responses.find((r) => r.id == data.id);
+
+        prompt.responses = prompt.responses ?? [];
+        const response = prompt.responses?.find((r) => r.id == data.id);
         if (response) {
-          response.response.content += data.message;
+          if (data.action == "replace") {
+            response[data.key] = data.value;
+          } else if (data.action == "append") {
+            response[data.key] = (response[data.key] ?? "") +  data.value;
+          } else if (data.action == "delete") {
+            delete response[data.key];
+          }
           prompt_list = prompt_list; // force update
         }
       }
@@ -138,3 +150,5 @@
     {/if}
   </div>
 </div>
+
+<slot />

@@ -9,10 +9,11 @@ class DBPrompt(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String)
-    messages = Column(JSON)
+    chat_messages = Column(JSON)
+    completion_prompt = Column(String)
     comment = Column(String)
-    created  = Column(DateTime(timezone=True), default=func.now())
-    updated  = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
+    created = Column(DateTime(timezone=True), default=func.now())
+    updated = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     # Relationship to DBResponse
     responses = relationship("DBResponse", back_populates="prompt", cascade="all, delete-orphan")
@@ -28,7 +29,12 @@ class DBResponse(Base):
     prompt = relationship("DBPrompt", back_populates="responses")
 
     title = Column(String)
-    response = Column(JSON)
+
+    role = Column(String)  # "assistant" or similar in Chat. Null if a Completion response.
+    content = Column(String)
+
+    stop_reason = Column(String)
+
     comment = Column(String)
     tok_in = Column(Integer)
     tok_out = Column(Integer)
@@ -38,6 +44,5 @@ class DBResponse(Base):
     provider = Column(String)
     meta = Column(JSON)
 
-    created  = Column(DateTime(timezone=True), default=func.now())
-    updated  = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
-
+    created = Column(DateTime(timezone=True), default=func.now())
+    updated = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())

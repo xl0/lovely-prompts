@@ -1,4 +1,4 @@
-from typing import List, Dict, Union, Optional
+from typing import List, Dict, Union, Optional, Literal
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -11,21 +11,30 @@ class _Common(BaseModel):
         orm_mode = True
 
 
-class ChatMessage(BaseModel):
+class ChatMessage(_Common):
     role: str = Field(None, example="user")
     content: str = Field(None, example="Hello there")
 
 
-class ChatPromptBase(_Common):
-    messages: Optional[List[ChatMessage]] = Field(None, example=[{"role": "user", "content": "Hello there"}])
+class LLMPromptBase(_Common):
+    chat_messages: Optional[List[ChatMessage]] = Field(
+        None, example=[{"role": "user", "content": "The true shape of the earth is"}]
+    )
+    completion_prompt: Optional[str] = Field(None, example="")
 
     class Config:
         orm_mode = True
 
 
-class ChatResponseBase(_Common):
+class LLMResponseBase(_Common):
     prompt_id: int = Field(None, example=1)
-    response: ChatMessage = Field(None, example={"role": "assistant", "content": "General Kenobi!!"})
+
+    role: str = Field(
+        None, example="assistant", desc="'assistant' or similar in chat. None if a completion-type response."
+    )
+    content: str = Field(None, example="flat, of course!")
+    stop_reason: str = Field(None, example="length")
+
     tok_in: int = Field(None, example=10)
     tok_out: int = Field(None, example=20)
     tok_max: int = Field(None, example=8000)
@@ -41,10 +50,18 @@ class SQLRowBase(BaseModel):
     updated: datetime = Field(None, example="2021-01-01T00:00:00.000Z")
 
 
-class ChatResponse(SQLRowBase, ChatResponseBase):
+class LLMResponse(SQLRowBase, LLMResponseBase):
     pass
     # prompt: PromptBase = Field(..., alias="prompt")
 
 
-class ChatPrompt(SQLRowBase, ChatPromptBase):
-    responses: List[ChatResponse] = Field([], alias="responses")
+class LLMPrompt(SQLRowBase, LLMPromptBase):
+    responses: List[LLMResponse] = Field([], alias="responses")
+
+
+class WSMessage(BaseModel):
+    id: Optional[int]
+    prompt_id: Optional[int]
+    action: Literal["replace", "append", "delete"]
+    key: str
+    value: str
