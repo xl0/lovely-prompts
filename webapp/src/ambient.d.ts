@@ -4,7 +4,7 @@ interface Chunk {
 };
 
 interface SQLRow {
-    id: number;
+    id: string;
     created: string;
     updated: string;
 };
@@ -17,6 +17,7 @@ interface ChatMessage extends Chunk {
 
 
 interface Data_LLMResponse extends ChatMessage, SQLRow {
+    [key: string]: any;
     prompt_id?: number;
     stop_reason?: string;
     tok_in?: number;
@@ -29,20 +30,17 @@ interface Data_LLMResponse extends ChatMessage, SQLRow {
 }
 
 interface Data_LLMPrompt extends Chunk, SQLRow {
-    chat_messages?: ChatMessage[];
+    prompt?: ChatMessage[];
     completion_prompt?: string;
     responses?: Data_LLMResponse[];
 };
 
-
 interface WSMessage {
-    id: number;
-    prompt_id: number;
+    id: string;
+    prompt_id: string;
     action: "replace" | "append" | "delete";
     key: string;
     value: string;
 }
-
-
 
 

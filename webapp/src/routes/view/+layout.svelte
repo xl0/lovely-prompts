@@ -8,6 +8,9 @@
   import Response from "$lib/components/ChatResponse.svelte";
   import PromptSummary from "$lib/components/ChatPromptSummary.svelte";
 
+  import { UpdateEvents } from "$lib";
+    import { PUBLIC_SERVER_URL } from "$env/static/public";
+
   let prompt_list: Data_LLMPrompt[] = [];
   let projects: Array<string> = [];
   let project: string;
@@ -20,28 +23,32 @@
     //     projects = j;
     //   });
 
-    fetch("http://localhost:8000/prompts/?" + new URLSearchParams({ project: "default" }))
+
+
+    fetch(`${PUBLIC_SERVER_URL}/chat_prompts/?` + new URLSearchParams({ project: "default" }))
       .then((res) => res.json())
       .then((j) => {
-        prompt_list = j.sort((a: Data_LLMPrompt, b: Data_LLMPrompt) => {
-          return b.id - a.id;
-        });
+        prompt_list = j;
+
+        // .sort((a: Data_LLMPrompt, b: Data_LLMPrompt) => {
+        //   return b.id - a.id;
+        // });
       });
 
     const eventSource = new EventSource(
-      "http://localhost:8000/updates/?" + new URLSearchParams({ project: "default" })
+      `${PUBLIC_SERVER_URL}/updates/?` + new URLSearchParams({ project: "default" })
     );
     eventSource.onerror = (err) => {
       console.log("err", err);
     };
 
-    eventSource.addEventListener("create_prompt", (event) => {
+    eventSource.addEventListener(UpdateEvents.NEW_CHAT_PROMPT, (event) => {
       const data = JSON.parse(event.data);
       prompt_list = [data, ...prompt_list];
       goto("/view/" + data.id);
     });
 
-    eventSource.addEventListener("update_prompt", (event) => {
+    eventSource.addEventListener(UpdateEvents.UPDATE_CHAT_PROMPT, (event) => {
       const data = JSON.parse(event.data);
       const index = prompt_list.findIndex((p) => p.id == data.id);
 
@@ -53,12 +60,11 @@
       }
     });
 
-    eventSource.addEventListener("delete_prompt", (event) => {
+    eventSource.addEventListener(UpdateEvents.DELETE_CHAT_PROMPT, (event) => {
       const data = JSON.parse(event.data);
       prompt_list = prompt_list.filter((p) => p.id != data.id);
     });
-
-    eventSource.addEventListener("create_response", (event) => {
+    eventSource.addEventListener(UpdateEvents.NEW_CHAT_RESPONSE, (event) => {
       const data = JSON.parse(event.data);
       const prompt = prompt_list.find((p) => p.id == data.prompt_id);
       if (prompt) {
@@ -67,7 +73,7 @@
       }
     });
 
-    eventSource.addEventListener("update_response", (event) => {
+    eventSource.addEventListener(UpdateEvents.UPDATE_CHAT_RESPONSE, (event) => {
       const data = JSON.parse(event.data);
       const prompt = prompt_list.find((p) => p.id == data.prompt_id);
       if (prompt) {
@@ -82,7 +88,7 @@
       }
     });
 
-    eventSource.addEventListener("delete_response", (event) => {
+    eventSource.addEventListener(UpdateEvents.DELETE_CHAT_RESPONSE, (event) => {
       const data = JSON.parse(event.data);
       const prompt = prompt_list.find((p) => p.id == data.prompt_id);
       if (prompt) {
@@ -92,18 +98,17 @@
       }
     });
 
-    eventSource.addEventListener("response_update_stream", (event) => {
+    eventSource.addEventListener(UpdateEvents.STREAM_CHAT_RESPONSE, (event) => {
       const data = JSON.parse(event.data) as WSMessage;
       const prompt = prompt_list.find((p) => p.id == data.prompt_id);
       if (prompt) {
-
         prompt.responses = prompt.responses ?? [];
         const response = prompt.responses?.find((r) => r.id == data.id);
         if (response) {
           if (data.action == "replace") {
             response[data.key] = data.value;
           } else if (data.action == "append") {
-            response[data.key] = (response[data.key] ?? "") +  data.value;
+            response[data.key] = (response[data.key] ?? "") + data.value;
           } else if (data.action == "delete") {
             delete response[data.key];
           }
@@ -115,7 +120,7 @@
 
   // $:
 
-  $: view_id = parseInt($page.params.id);
+  $: view_id = $page.params.id;
   $: selected_prompt = prompt_list.find((p) => p.id == view_id);
 </script>
 
@@ -135,16 +140,26 @@
     {#if view_id}
       {#if selected_prompt}
         <div class="flex grow" transition:fade>
-          <div class="flex flex-col md:flex-row flex-grow">
-            <Prompt class="md:w-1/2" prompt={selected_prompt} />
-            <div class="md:w-1/2">
-              {#if selected_prompt.responses}
+          {#if selected_prompt?.responses && selected_prompt.responses.length > 1}
+            <div class="flex flex-wrap md:flex-col flex-grow">
+              <Prompt class="" prompt={selected_prompt} />
+              <div class="flex flex-wrap justify-center">
                 {#each selected_prompt.responses as response}
                   <Response {response} />
                 {/each}
-              {/if}
+              </div>
             </div>
-          </div>
+          {:else if selected_prompt?.responses && selected_prompt?.responses.length == 1}
+            {@const response = selected_prompt.responses[0]}
+            <div class="flex flex-col grow lg:flex-row">
+              <Prompt class="lg:w-1/2" prompt={selected_prompt} />
+              <Response class="lg:w-1/2" {response} />
+            </div>
+          {:else}
+            <div class="flex flex-col grow lg:flex-row">
+              <Prompt class="lg:w-1/2" prompt={selected_prompt} />
+            </div>
+          {/if}
         </div>
       {/if}
     {/if}

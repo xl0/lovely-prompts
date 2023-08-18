@@ -1,15 +1,29 @@
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, Request, WebSocketException, status
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, Request, WebSocketException, status, Query
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import create_engine
 import logging
 
-from .models import DBPrompt, DBResponse, Base
-from .schemas import LLMPrompt, LLMResponse, LLMPromptBase, LLMResponseBase, ChatMessage, WSMessage
+from .orm.remote import ServerBase, ServerChatPromptSchema, ServerChatResponseSchema
+from .models import (
+    ChatPrompt,
+    ChatResponse,
+    CompletionPrompt,
+    CompletionResponse,
+    ChatPromptModel,
+    ChatResponseModel,
+    CompletionPromptModel,
+    CompletionResponseModel,
+    ServerChatPromptModel,
+    ServerChatResponseModel,
+    ServerCompletionPromptModel,
+    ServerCompletionResponseModel,
+    WSMessage,
+)
 
 # engine = create_engine("sqlite:///./sql_app.db")
 # SessionLocal = sessionmaker(autoflush=True, bind=engine)
@@ -36,7 +50,7 @@ class BodyLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.method != "GET":
             body = await request.body()
-            print(f"Raw Body: {body.decode()}")
+            print(f"{request.url}: Raw Body: {body.decode()}")
 
             # create a new stream for the body
             async def mock_receive():
@@ -48,7 +62,7 @@ class BodyLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# app.add_middleware(BodyLoggingMiddleware)
+app.add_middleware(BodyLoggingMiddleware)
 
 
 from contextvars import ContextVar
@@ -76,21 +90,21 @@ def project_create(project: str):
     if not project_exists(project):
         print("Creating new database")
         os.makedirs(app_data_dir / "dbs", exist_ok=True)
-        Base.metadata.create_all(bind=engine)
+        ServerBase.metadata.create_all(bind=engine)
     else:
         print("Database already exists")
 
     return engine
 
 
-@app.on_event("startup")
-def create_default_project():
-    project_create("default")
+# @app.on_event("startup")
+# def create_default_project():
+#     project_create("default")
 
 
 def check_project_exists(project="default"):
     if not project_exists(project):
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=f"Project '{project}' not found")
 
 
 def get_session(project="default"):
@@ -114,50 +128,35 @@ def list_projects():
     return [name.replace(".db", "") for name in project_names]
 
 
-def db_get(db: Session, table: Base, id: int):
-    return db.query(table).filter(table.id == id).first()
-
-
-def db_gets(db: Session, table: Base, skip: Optional[int], limit: Optional[int]):
-    query = db.query(table)
-    if skip > 0:
-        query = query.offset(skip)
-    if limit > 0:
-        query = query.limit(limit)
-    return query.all()
-
-
-def db_create(db: Session, table: Base, data: dict) -> Base:
-    db_data = table(**data)
-    db.add(db_data)
-    db.commit()
-    db.refresh(db_data)
-    return db_data
-
-
-def db_update(db: Session, table: Base, id: int, data: BaseModel) -> Base:
-    db_data = db_get(db, table, id)
-    if db_data is None:
-        raise HTTPException(status_code=404, detail="Data not found")
-    for key, value in data.dict(exclude_unset=True).items():
-        setattr(db_data, key, value)
-    db.commit()
-
-
-def db_delete(db: Session, table: Base, id: int):
-    db_data = db_get(db, table, id)
-    if db_data is None:
-        raise HTTPException(status_code=404, detail="Data not found")
-    db.delete(db_data)
-    db.commit()
-
-
 from collections import defaultdict
-from functools import partial
 import asyncio
-import json
+
 
 event_queues: Dict[str, List[asyncio.Queue]] = defaultdict(list)
+
+from enum import Enum
+
+# Don't forget to sync with the webapp
+class UpdateEvents(Enum):
+    NEW_CHAT_PROMPT = "new_chp"
+    UPDATE_CHAT_PROMPT = "up_chp"
+    DELETE_CHAT_PROMPT = "del_chp"
+
+    NEW_COMPLETION_PROMPT = "new_cop"
+    UPDATE_COMPLETION_PROMPT = "up_cop"
+    DELETE_COMPLETION_PROMPT = "del_cop"
+
+    NEW_CHAT_RESPONSE = "new_chr"
+    UPDATE_CHAT_RESPONSE = "up_chr"
+    DELETE_CHAT_RESPONSE = "del_chr"
+
+    NEW_COMPLETION_RESPONSE = "new_cor"
+    UPDATE_COMPLETION_RESPONSE = "up_cor"
+    DELETE_COMPLETION_RESPONSE = "del_cor"
+
+
+    STREAM_CHAT_RESPONSE = "stream_chr"
+    STREAM_COMPLETION_RESPONSE = "stream_cop"
 
 
 def update_event_queues(news: dict, project: str):
@@ -165,128 +164,235 @@ def update_event_queues(news: dict, project: str):
         q.put_nowait(news)
 
 
-webapp_tags = ["Webapp"]
-apiserver_tags = ["API Server"]
+from typing import Literal
+from pydantic import Field
+
+WEBAPP = "Webapp"
+API = "API Server"
 
 
-@app.get("/projects/", tags=webapp_tags)
+@app.get("/projects/", tags=[WEBAPP])
 def read_projects() -> list[str]:
     return list_projects()
 
 
-@app.get("/prompts/", response_model=List[LLMPrompt], dependencies=[Depends(check_project_exists)], tags=webapp_tags)
-def read_prompts(skip: int = 0, limit: int = 0, db: Session = Depends(get_session)):
-    prompts = db_gets(db, DBPrompt, skip=skip, limit=limit)
-    return prompts
+from sqlalchemy import desc, asc
 
 
 @app.get(
-    "/prompts/{prompt_id}", response_model=LLMPrompt, dependencies=[Depends(check_project_exists)], tags=webapp_tags
+    "/chat_prompts/",
+    response_model=List[ChatPromptModel],
+    response_model_exclude_unset=True,
+    dependencies=[Depends(check_project_exists)],
+    tags=[WEBAPP],
 )
-def read_prompt(prompt_id: int, db: Session = Depends(get_session)):
-    db_prompt = db_get(db, DBPrompt, prompt_id)
+def get_chat_prompts(skip: int = 0, limit: int = 100, db: Session = Depends(get_session)):
+    return (
+        db.query(ServerChatPromptSchema).order_by(desc(ServerChatPromptSchema.created)).offset(skip).limit(limit).all()
+    )
+
+
+@app.get(
+    "/chat_prompts/{prompt_id}",
+    response_model=ChatPromptModel,
+    response_model_exclude_unset=True,
+    dependencies=[Depends(check_project_exists)],
+    tags=[WEBAPP],
+)
+def get_chat_prompt(prompt_id: str, db: Session = Depends(get_session)):
+    db_prompt = db.query(ServerChatPromptSchema).filter(ServerChatPromptSchema.id == prompt_id).first()
+
     if db_prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
     return db_prompt
 
 
-from fastapi.encoders import jsonable_encoder
+@app.post("/chat_prompts/", response_model=ChatPromptModel, response_model_exclude_unset=True, tags=[API])
+def create_chat_prompt(prompt: ChatPromptModel, project: str = "default", db: Session = Depends(get_session)):
+    db_prompt = ServerChatPromptSchema(**prompt.model_dump())
 
+    db.add(db_prompt)
+    db.commit()
 
-@app.post("/prompts/", response_model=LLMPrompt, tags=apiserver_tags)
-def create_prompt(prompt: LLMPromptBase, project: str = "default", db: Session = Depends(get_session)):
-    res = db_create(db, DBPrompt, prompt.dict())
-    update_event_queues({"event": "create_prompt", "data": LLMPrompt.from_orm(res).json()}, project=project)
-    return res
+    model_prompt = ChatPromptModel.model_validate(db_prompt)
+
+    update_event_queues(
+        {"event": UpdateEvents.NEW_CHAT_PROMPT, "data": model_prompt.model_dump_json(exclude_unset=True)},
+        project=project,
+    )
+    return model_prompt
 
 
 @app.put(
-    "/prompts/{prompt_id}", response_model=LLMPrompt, dependencies=[Depends(check_project_exists)], tags=apiserver_tags
-)
-def update_prompt(prompt_id: int, prompt: LLMPromptBase, project: str = "default", db: Session = Depends(get_session)):
-    db_update(db, DBPrompt, prompt_id, prompt)
-    db_prompt = db_get(db, DBPrompt, prompt_id)
-    update_event_queues({"event": "update_prompt", "data": LLMPrompt.from_orm(db_prompt).json()}, project=project)
-
-    return db_prompt
-
-
-@app.delete("/prompts/{prompt_id}", dependencies=[Depends(check_project_exists)], tags=apiserver_tags)
-def delete_prompt(prompt_id: int, project: str = "default", db: Session = Depends(get_session)):
-    db_delete(db, DBPrompt, prompt_id)
-    update_event_queues({"event": "delete_prompt", "data": json.dumps({"id": prompt_id})}, project=project)
-
-
-@app.get(
-    "/responses/", response_model=List[LLMResponse], dependencies=[Depends(check_project_exists)], tags=webapp_tags
-)
-def read_responses(skip: int = 0, limit: int = 0, db: Session = Depends(get_session)):
-    responses = db_gets(db, DBResponse, skip=skip, limit=limit)
-    return responses
-
-
-@app.get(
-    "/responses/{response_id}",
-    response_model=LLMResponse,
+    "/chat_prompts/{prompt_id}",
+    response_model=ChatPromptModel,
+    response_model_exclude_unset=True,
     dependencies=[Depends(check_project_exists)],
-    tags=webapp_tags,
+    tags=[API],
 )
-def read_response(response_id: int, db: Session = Depends(get_session)):
-    db_response = db_get(db, DBResponse, response_id)
+def update_chat_prompt(
+    prompt_id: str, prompt: ChatPromptModel, project: str = "default", db: Session = Depends(get_session)
+):
+    db_prompt = db.query(ServerChatPromptSchema).filter(ServerChatPromptSchema.id == prompt_id).first()
+    if db_prompt is None:
+        raise HTTPException(status_code=404, detail=f"{type(prompt)} with id={id} not found")
+
+    # if "id" in prompt:
+    #     raise HTTPException(status_code=403, detail="Cannot change id")
+
+    for key, value in prompt.model_dump().items():
+        setattr(db_prompt, key, value)
+
+    db.commit()
+
+    model_prompt = ChatPromptModel.model_validate(db_prompt)
+
+    update_event_queues(
+        {"event": UpdateEvents.UPDATE_CHAT_PROMPT, "data": model_prompt.model_dump_json()},
+        project=project,
+    )
+
+    return model_prompt
+
+
+import json
+
+
+@app.delete(
+    "/chat_prompts/{prompt_id}",
+    response_model_exclude_unset=True,
+    dependencies=[Depends(check_project_exists)],
+    tags=[API],
+    status_code=204,
+)
+def delete_chat_prompt(prompt_id: str, project: str = "default", db: Session = Depends(get_session)):
+    prompt = db.query(ServerChatPromptSchema).filter(ServerChatPromptSchema.id == prompt_id).first()
+    if not prompt:
+        raise HTTPException(status_code=404, detail=f"ChatPrompt with id={prompt_id} not found")
+    db.delete(prompt)
+    db.commit()
+
+    # db_delete(db, DBPrompt, prompt_id)
+    update_event_queues(
+        {"event": UpdateEvents.DELETE_CHAT_PROMPT, "data": json.dumps({"id": prompt_id})}, project=project
+    )
+
+
+@app.get(
+    "/chat_responses/",
+    response_model=ChatResponseModel,
+    response_model_exclude_unset=True,
+    dependencies=[Depends(check_project_exists)],
+    tags=[WEBAPP],
+)
+def get_chat_responses(skip: int = 0, limit: int = 100, db: Session = Depends(get_session)):
+    return (
+        db.query(ServerChatResponseSchema)
+        .order_by(desc(ServerChatResponseSchema.created))
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+@app.get(
+    "/chat_responses/{response_id}",
+    response_model=ChatResponseModel,
+    response_model_exclude_unset=True,
+    dependencies=[Depends(check_project_exists)],
+    tags=[WEBAPP],
+)
+def get_chat_response(response_id: str, db: Session = Depends(get_session)):
+    db_response = db.query(ServerChatResponseSchema).filter(ServerChatResponseSchema.id == response_id).first()
     if db_response is None:
         raise HTTPException(status_code=404, detail="Response not found")
     return db_response
 
 
-@app.post("/responses/", response_model=LLMResponse, tags=apiserver_tags)
-def create_response(response: LLMResponseBase, project: str = "default", db: Session = Depends(get_session)):
-    res = db_create(db, DBResponse, response.dict())
-    update_event_queues({"event": "create_response", "data": LLMResponse.from_orm(res).json()}, project=project)
-    return res
+@app.post("/chat_responses/", response_model=ChatResponseModel, response_model_exclude_unset=True, tags=[API])
+def create_response(response: ChatResponseModel, project: str = "default", db: Session = Depends(get_session)):
+    existing_response = db.query(ServerChatResponseSchema).filter(ServerChatResponseSchema.id == response.id).first()
+    if existing_response is not None:
+        raise HTTPException(status_code=403, detail=f"Response with id={response.id} already exists")
+
+    db_response = ServerChatResponseSchema(**response.model_dump())
+
+    db.add(db_response)
+    db.commit()
+
+    model_response = ChatResponseModel.model_validate(db_response)
+
+    update_event_queues(
+        {"event": UpdateEvents.NEW_CHAT_RESPONSE, "data": model_response.model_dump_json()}, project=project
+    )
+
+    return model_response
 
 
 @app.put(
-    "/responses/{response_id}",
-    response_model=LLMResponse,
+    "/chat_responses/{response_id}",
+    response_model=ChatResponse,
+    response_model_exclude_unset=True,
     dependencies=[Depends(check_project_exists)],
-    tags=apiserver_tags,
+    tags=[API],
 )
 def update_response(
-    response_id: int, response: LLMResponseBase, project: str = "default", db: Session = Depends(get_session)
+    response_id: str, response: ChatResponseModel, project: str = "default", db: Session = Depends(get_session)
 ):
-    db_update(db, DBResponse, response_id, response)
-    db_response = db_get(db, DBResponse, response_id)
-    update_event_queues({"event": "update_response", "data": LLMResponse.from_orm(db_response).json()}, project=project)
+    db_response = db.query(ServerChatResponseSchema).filter(ServerChatResponseSchema.id == response_id).first()
+    if db_response is None:
+        raise HTTPException(status_code=404, detail=f"{type(response)} with id={id} not found")
+
+    for key, value in response.model_dump().items():
+        setattr(db_response, key, value)
+
+    model_response = ChatResponseModel.model_validate(db_response)
+
+    db.commit()
+    update_event_queues(
+        {"event": UpdateEvents.UPDATE_CHAT_RESPONSE, "data": model_response.model_dump_json()},
+        project=project,
+    )
 
     return db_response
 
 
-@app.delete("/responses/{response_id}", dependencies=[Depends(check_project_exists)], tags=apiserver_tags)
-def delete_response(response_id: int, project: str = "default", db: Session = Depends(get_session)):
-    db_response = db_get(db, DBResponse, response_id)
-    prompt_id = db_response.prompt_id
-    db_delete(db, DBResponse, response_id)
+@app.delete(
+    "/chat_responses/{response_id}",
+    response_model_exclude_unset=True,
+    dependencies=[Depends(check_project_exists)],
+    tags=[API],
+    status_code=204,
+)
+def delete_response(response_id: str, project: str = "default", db: Session = Depends(get_session)):
+    db_response = db.query(ServerChatResponseSchema).filter(ServerChatResponseSchema.id == response_id).first()
+    if not db_response:
+        raise HTTPException(status_code=404, detail=f"Response with id={response_id} not found")
+    prompt_id = db.response.prompt_id
+    db.delete(db_response)
+    db.commit()
     update_event_queues(
-        {"event": "delete_response", "data": json.dumps({"id": response_id, "prompt_id": prompt_id})}, project=project
+        {"event": UpdateEvents.DELETE_CHAT_RESPONSE, "data": json.dumps({"id": response_id, "prompt_id": prompt_id})},
+        project=project,
     )
 
 
-@app.websocket("/responses/{id}/update_stream")
+@app.websocket("/chat_responses/{id}/update_stream")
 async def record_update_ws(websocket: WebSocket, id: str, project: str = "default", db: Session = Depends(get_session)):
     await websocket.accept()
     try:
-        db_response = db_get(db, DBResponse, id)
+        db_response = db.query(ServerChatResponseSchema).filter(ServerChatResponseSchema.id == id).first()
         if db_response is None:
             raise HTTPException(status_code=404, detail="Response not found")
 
-        db_response = LLMResponseBase.from_orm(db_response)
+        db_response = ChatResponseModel.model_validate(db_response)
 
         if "content" not in db_response:
             db_response.content = ""
 
         stop_reson = None
         async for message in websocket.iter_text():
-            ws_message = WSMessage.parse_raw(message)
+            ws_message = WSMessage.model_validate_json(message)
             ws_message.id = id  # We will pass the id on to the webapp via SSE, make sure it is set
             ws_message.prompt_id = db_response.prompt_id
 
@@ -304,12 +410,14 @@ async def record_update_ws(websocket: WebSocket, id: str, project: str = "defaul
                 setattr(db_response, ws_message.key, None)
 
             # Pass the message on to the webapp via SSE
-            update_event_queues({"event": "response_update_stream", "data": ws_message.json()}, project=project)
+            update_event_queues({"event": UpdateEvents.STREAM_CHAT_RESPONSE, "data": ws_message.model_dump()}, project=project)
 
             print(id, ws_message)
 
         print("Updating database", db_response)
-        db_update(db, DBResponse, id, db_response)
+        db.commit()
+
+        # db_update(db, DBResponse, id, db_response)
 
     finally:
         print("Closing websocket")
@@ -320,8 +428,10 @@ async def record_update_ws(websocket: WebSocket, id: str, project: str = "defaul
 from sse_starlette.sse import EventSourceResponse
 import json
 
+from fastapi.encoders import jsonable_encoder
 
-@app.get("/updates/", dependencies=[Depends(check_project_exists)], tags=webapp_tags)
+
+@app.get("/updates/", dependencies=[Depends(check_project_exists)], tags=[WEBAPP])
 def get_updates(project: str = "default") -> EventSourceResponse:
     event_queue = asyncio.Queue()
     event_queues[project].append(event_queue)
@@ -331,28 +441,11 @@ def get_updates(project: str = "default") -> EventSourceResponse:
         try:
             while True:
                 news = await event_queue.get()
-                print("Sending event", news)
-                yield dict(event=news["event"], data=news["data"])
+                payload = jsonable_encoder(dict(event=news["event"], data=news["data"]))
+                print("Sending event", payload)
+                yield payload
         except asyncio.CancelledError as e:
             print("Heartbeat Cancelled", e)
             event_queues[project].remove(event_queue)
 
     return EventSourceResponse(event_generator())
-
-
-# from fastapi.staticfiles import StaticFiles
-# from fastapi.responses import FileResponse
-
-
-# app.mount("/", StaticFiles(directory="../webapp/build/", html=True), name="static")
-
-# @app.get("/{path_name}")
-# async def index(path_name: str):
-#     print(path_name)
-#     return FileResponse("../webapp/build/index.html")
-
-
-import uvicorn
-
-if __name__ == "__main__":
-    uvicorn.run(app)
