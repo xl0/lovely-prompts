@@ -98,8 +98,15 @@
       }
     });
 
-    eventSource.addEventListener(UpdateEvents.STREAM_CHAT_RESPONSE, (event) => {
+    eventSource.addEventListener(UpdateEvents.STREAM_CHAT_RESPONSE, (event: MessageEvent) => {
+
+      console.log({ed: event.data});
       const data = JSON.parse(event.data) as WSMessage;
+
+      // const data = event.data;
+      console.log({data});
+
+
       const prompt = prompt_list.find((p) => p.id == data.prompt_id);
       if (prompt) {
         prompt.responses = prompt.responses ?? [];

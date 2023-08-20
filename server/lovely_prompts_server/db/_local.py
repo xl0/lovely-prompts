@@ -5,6 +5,8 @@ from .common import EntryMeta, ResponseMeta
 
 LocalBase = declarative_base()
 
+
+
 class LocalChatPromptSchema(LocalBase, EntryMeta):
     __tablename__ = "local_chat_prompts"
 

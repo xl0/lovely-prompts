@@ -40,7 +40,7 @@ interface WSMessage {
     prompt_id: string;
     action: "replace" | "append" | "delete";
     key: string;
-    value: string;
+    value: string|number|boolean;
 }
 
 

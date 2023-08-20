@@ -83,13 +83,27 @@ class ServerRowCommon(RowCommon):
     pass
 
 
+# class PromptTemplateBody(BaseModelNoUset):
+#     filename: str = Field(None, example="template.jn2")
+#     type: str = Field(None, example="jinja2")
+
+
+# class PromptTemplateData(BaseModelNoUset):
+#     data: Dict[str, Any] = Field(None, example={"name": "John"})
+
+
+
 class ChatMessage(RowCommon):
     role: str = Field(None, example="user")
     content: str = Field(None, example="Hello there")
+    # template_id: Optional[str] = Field(None, example="tem_1234")
+
+
+
 
 
 class ResponseBase(RowCommon):
-    prompt_id: str = Field(None, example=1)
+    prompt_id: str = Field(None, example="chp_234243242")
 
     content: Optional[str] = Field(None, example="Flat, of course!")
     stop_reason: Optional[str] = Field(None, example="length")
@@ -103,24 +117,27 @@ class ResponseBase(RowCommon):
     provider: Optional[str] = Field(None, example="openai")
 
 
-class CompletionResponse(ResponseBase):
-    pass
-
 
 class ChatResponse(ResponseBase):
     role: Optional[str] = Field(None, example="assistant", desc="'assistant' or similar")
-
+    # run_id: Optional[str] = Field(None, example="run_Cf5Gjbv9TCUSIexr")
 
 class ChatPrompt(RowCommon):
     prompt: Optional[List[ChatMessage]] = Field(
         None, example=[{"role": "user", "content": "What is the true shape of the Earth???"}]
     )
     responses: List[ChatResponse] = Field([], alias="responses")
+    # run_id: Optional[str] = Field(None, example="run_Cf5Gjbv9TCUSIexr")
 
+
+class CompletionResponse(ResponseBase):
+    # run_id: Optional[str] = Field(None, example="run_Cf5Gjbv9TCUSIexr")
+    pass
 
 class CompletionPrompt(RowCommon):
     prompt: str = Field("", example="Bush did")
     responses: List[CompletionResponse] = Field([], alias="responses")
+    # run_id: Optional[str] = Field(None, example="run_Cf5Gjbv9TCUSIexr")
 
 
 # A record with the common SQL fields. This is used to pass the data to/from the server endpoints.
@@ -156,12 +173,36 @@ class ServerChatResponseModel(ChatResponse, ServerRowCommon):
 class ServerCompletionResponseModel(CompletionResponse, ServerRowCommon):
     pass
 
-
+# Don't forget to update the webapp if you change this
 class WSMessage(BaseModelNoUset):
-    id: Optional[str]
-    prompt_id: Optional[str]
+    id: Optional[str] = None
+    prompt_id: Optional[str] = None
     action: Literal["replace", "append", "delete"]
     key: str
-    value: str
+    value: Union[str, int, float, bool]
+
+
+
+from functools import partial
+import string
+import nanoid
+
+
+generate_nonoid = partial(nanoid.generate, size=16)
+
+def make_id(entry_class=None):
+    """Generate a unique ID for a DB entry. Also used to generate the name of the DB file."""
+
+    prefixes = {
+        ChatPrompt: "chp_",
+        CompletionPrompt: "cop_",
+        ChatResponse: "chr_",
+        CompletionResponse: "cor_",
+    }
+
+    alphabet = string.digits + string.ascii_lowercase + string.ascii_uppercase
+
+    return (prefixes[entry_class] if entry_class else "") + generate_nonoid(alphabet=alphabet)
+
 
 
